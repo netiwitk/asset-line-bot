@@ -1,0 +1,12 @@
+{
+  "name": "asset-line-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "observability": { "enabled": true },
+  "vars": {
+    "API_URL": "https://asset-laravel.onrender.com",
+    "APP_URL": "https://netiwitk.github.io/asset-scanner/",
+    "LINE_API": "https://api.line.me"
+  }
+  // Secrets, set with `npx wrangler secret put <NAME>`: LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN
+}
