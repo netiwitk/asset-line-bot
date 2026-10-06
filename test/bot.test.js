@@ -48,6 +48,14 @@ test('the asset card shows its facts, the late loan, and opens the scanner app o
   assert.equal(card.altText, 'โปรเจกเตอร์ Epson (AV-67-0034) · ใช้งานได้ · ถูกยืม');
 });
 
+test('row labels wrap instead of being cut off', () => {
+  const rows = assetCard(asset, 'https://scan.example/').contents.body.contents.filter((n) => n.layout === 'horizontal' && n.spacing === 'md');
+  const book = rows.find((r) => r.contents[0].text === 'มูลค่าตามบัญชี');
+
+  assert.ok(book, 'book value row');
+  for (const r of rows) assert.equal(r.contents[0].wrap, true, r.contents[0].text);
+});
+
 test('an asset that is not out on loan has no loan section', () => {
   const card = assetCard({ ...asset, loan: null }, 'https://scan.example/');
 

@@ -185,8 +185,9 @@ function row(label, value, extra = []) {
     spacing: 'md',
     margin: 'md',
     contents: [
-      { type: 'text', text: label, size: 'sm', color: MUTED, flex: 2 },
-      { type: 'text', size: 'sm', color: INK, flex: 4, wrap: true, contents: [{ type: 'span', text: value }, ...extra] },
+      // LINE cuts a label that does not fit with "…"; on a phone "มูลค่าตามบัญชี" did not fit at flex 2.
+      { type: 'text', text: label, size: 'sm', color: MUTED, flex: 3, wrap: true },
+      { type: 'text', size: 'sm', color: INK, flex: 5, wrap: true, contents: [{ type: 'span', text: value }, ...extra] },
     ],
   };
 }
