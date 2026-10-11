@@ -5,6 +5,8 @@
   "observability": { "enabled": true },
   // Who asked for the morning alert: one key per LINE userId, each expiring 3 days after it was written.
   "kv_namespaces": [{ "binding": "SUBSCRIBERS" }],
+  // 01:00 UTC is 08:00 in Bangkok.
+  "triggers": { "crons": ["0 1 * * *"] },
   "vars": {
     "API_URL": "https://asset-laravel.onrender.com",
     "APP_URL": "https://netiwitk.github.io/asset-scanner/",

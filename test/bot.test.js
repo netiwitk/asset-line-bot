@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { OVERDUE_LIMIT, assetCard, baht, help, intentOf, overdueList, unavailable } from '../src/bot.js';
+import { OVERDUE_LIMIT, assetCard, baht, help, intentOf, overdueAlert, overdueList, unavailable } from '../src/bot.js';
 
 /** The JSON shape of GET /api/assets/{tag} from asset-laravel's ScannedAssetResource. */
 const asset = {
@@ -85,6 +85,18 @@ test('the overdue list stops at the limit and says how many more', () => {
   assert.ok(!shown.includes(`T-${OVERDUE_LIMIT}  `));
   assert.ok(shown.includes('และอีก 3 รายการ'));
   assert.equal(overdueList([]).text, 'ตอนนี้ไม่มีของเกินกำหนดคืน');
+});
+
+test('the morning alert is the overdue list, with a lock-screen line, a note that it ends, and a way to stop', () => {
+  const loans = [{ tag: 'T-1', name: 'Item', borrower: 'B', due_on: '1 ต.ค. 2569', days_overdue: 3 }];
+  const alert = overdueAlert(loans);
+  const shown = texts(alert);
+
+  assert.equal(alert.altText, 'แจ้งเตือนเช้านี้: ของเกินกำหนดคืน 1 รายการ');
+  assert.ok(shown.includes('T-1  '));
+  assert.ok(shown.some((t) => t.includes('หยุดเองเมื่อครบ 3 วัน')));
+  assert.equal(alert.quickReply.items[0].action.text, 'เลิกแจ้งเตือน');
+  assert.ok(!texts(overdueList(loans)).some((t) => t.includes('หยุดเอง')), 'the plain list has no alert note');
 });
 
 test('quick reply buttons fit LINE limits, help offers the alert, and "ลองใหม่" resends the same text', () => {

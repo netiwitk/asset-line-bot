@@ -1,8 +1,9 @@
 // LINE webhook for the asset system: answer at once, then reply to each event in the background.
+// Every morning, push the overdue list to whoever asked for it.
 
 import { NotFound, Unavailable, getAsset, getOverdue } from './api.js';
-import { assetCard, help, intentOf, notFound, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from './bot.js';
-import { reply, showLoading, verifySignature } from './line.js';
+import { assetCard, help, intentOf, notFound, overdueAlert, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from './bot.js';
+import { multicast, reply, showLoading, verifySignature } from './line.js';
 
 /**
  * How long to wait for the asset system before saying it is waking up. It must leave room inside both
@@ -15,6 +16,10 @@ const MAX_SUBSCRIBERS = 8;
 
 /** A subscription ends by itself, so a visitor who tried the demo once stops using the quota. */
 const SUBSCRIPTION_SECONDS = 3 * 24 * 60 * 60;
+
+/** The free demo server took 45 s to wake once. Eight tries of up to 20 s, 10 s apart, keep asking for 3-4 minutes. */
+const WAKE_ATTEMPTS = 8;
+const WAKE_ATTEMPT_MS = 20_000;
 
 export default {
   async fetch(request, env, ctx) {
@@ -31,7 +36,32 @@ export default {
     ctx.waitUntil(Promise.all(events.map((event) => handle(event, env))));
     return new Response('OK');
   },
+
+  scheduled(controller, env, ctx) {
+    ctx.waitUntil(notifyOverdue(env));
+  },
 };
+
+/** One multicast with one message, so each subscriber costs one message of the monthly quota. */
+export async function notifyOverdue(env, { retryDelayMs = 10_000 } = {}) {
+  const { keys } = await env.SUBSCRIBERS.list();
+  if (keys.length === 0) return;
+  const loans = await overdueOnceAwake(env, retryDelayMs);
+  if (loans?.length) await multicast(env, keys.map((key) => key.name), [overdueAlert(loans)]);
+}
+
+async function overdueOnceAwake(env, retryDelayMs) {
+  for (let attempt = 1; attempt <= WAKE_ATTEMPTS; attempt++) {
+    if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    try {
+      return await getOverdue(env, AbortSignal.timeout(WAKE_ATTEMPT_MS));
+    } catch (error) {
+      if (!(error instanceof Unavailable)) throw error;
+    }
+  }
+  console.error(`morning alert skipped: the asset system did not answer in ${WAKE_ATTEMPTS} tries`);
+  return null;
+}
 
 async function handle(event, env) {
   try {

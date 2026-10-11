@@ -22,6 +22,12 @@ export async function reply(env, replyToken, messages) {
   if (!res.ok) console.error('LINE reply failed', res.status, await res.text());
 }
 
+/** Sends the same messages to up to 500 users. Each user counts against the monthly message quota. */
+export async function multicast(env, to, messages) {
+  const res = await lineApi(env, '/v2/bot/message/multicast', { to, messages });
+  if (!res.ok) console.error('LINE multicast failed', res.status, await res.text());
+}
+
 /** The "typing" dots while the answer is fetched. One-to-one chats only; it disappears when the reply arrives. */
 export async function showLoading(env, userId) {
   const res = await lineApi(env, '/v2/bot/chat/loading/start', { chatId: userId, loadingSeconds: 20 });

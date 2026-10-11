@@ -1,17 +1,23 @@
 // Runs the Worker in the real Workers runtime (`wrangler dev`) against a running asset-laravel,
-// with a stand-in LINE API that records every reply. Sends signed webhooks and checks the answers.
+// with a stand-in LINE API that records every reply. Sends signed webhooks and checks the answers,
+// then runs the 08:00 cron once and checks the morning alert.
 //
 // usage:  node tool/e2e.mjs [apiUrl]
 //   apiUrl   asset-laravel with APP_DEMO=true and freshly seeded data (default http://127.0.0.1:8000)
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const API_URL = process.argv[2] ?? 'http://127.0.0.1:8000';
 const SECRET = 'local-e2e-secret';
 const LINE_PORT = 9911;
 const WORKER = 'http://127.0.0.1:8799';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Local KV outlives the dev server, and old subscribers would get the alert too.
+const STATE = mkdtempSync(join(tmpdir(), 'asset-line-bot-e2e-'));
 
 const lineCalls = [];
 const line = createServer((req, res) => {
@@ -25,7 +31,7 @@ const line = createServer((req, res) => {
 
 const worker = spawn(
   'npx',
-  ['wrangler', 'dev', '--port', '8799', '--ip', '127.0.0.1', '--show-interactive-dev-session=false',
+  ['wrangler', 'dev', '--port', '8799', '--ip', '127.0.0.1', '--show-interactive-dev-session=false', '--test-scheduled', '--persist-to', STATE,
     '--var', `LINE_API:http://127.0.0.1:${LINE_PORT}`, '--var', `API_URL:${API_URL}`,
     '--var', `LINE_CHANNEL_SECRET:${SECRET}`, '--var', 'LINE_CHANNEL_ACCESS_TOKEN:local-e2e-token'],
   { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, WRANGLER_SEND_METRICS: 'false' } },
@@ -105,8 +111,24 @@ await check('a greeting gets the help text with quick replies, the alert among t
   expect(messages?.[0]?.quickReply?.items.some((item) => item.action.text === 'รับแจ้งเตือน'), JSON.stringify(messages)?.slice(0, 200));
 });
 
+await check('"รับแจ้งเตือน", then the 08:00 cron, sends that user one alert in one multicast', async () => {
+  const { messages } = await send(userText('รับแจ้งเตือน'));
+  expect(messages?.[0]?.text?.includes('08:00'), JSON.stringify(messages));
+  const res = await fetch(`${WORKER}/__scheduled?cron=0+1+*+*+*`);
+  expect(res.ok, `__scheduled ${res.status}`);
+  const multicasts = () => lineCalls.filter((c) => c.path === '/v2/bot/message/multicast');
+  for (let i = 0; i < 960 && multicasts().length === 0; i++) await sleep(250);
+  await sleep(2000);
+  const sent = multicasts();
+  expect(sent.length === 1, `${sent.length} multicasts`);
+  expect(JSON.stringify(sent[0].body.to) === '["U-e2e"]', `to ${JSON.stringify(sent[0].body.to)}`);
+  expect(sent[0].body.messages.length === 1, `${sent[0].body.messages.length} messages`);
+  expect(sent[0].body.messages[0].altText.startsWith('แจ้งเตือนเช้านี้'), sent[0].body.messages[0].altText);
+});
+
 results.forEach((r) => console.log(r));
 if (results.some((r) => r.startsWith('FAIL'))) console.log(`\nworker log:\n${workerLog.slice(-3000)}`);
 worker.kill();
 line.close();
+rmSync(STATE, { recursive: true, force: true });
 process.exit(results.some((r) => r.startsWith('FAIL')) ? 1 : 0);

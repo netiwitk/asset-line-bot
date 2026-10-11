@@ -155,7 +155,7 @@ export function assetCard(asset, appUrl) {
 }
 
 /** Late loans, oldest first. Tapping one sends its tag, which opens its card. */
-export function overdueList(loans) {
+export function overdueList(loans, footnote) {
   if (loans.length === 0) return withQuickReplies({ type: 'text', text: 'ตอนนี้ไม่มีของเกินกำหนดคืน' });
   const shown = loans.slice(0, OVERDUE_LIMIT);
   const more = loans.length - shown.length;
@@ -202,9 +202,24 @@ export function overdueList(loans) {
             },
           ]),
           ...(more > 0 ? [{ type: 'text', text: `และอีก ${more} รายการ`, size: 'xs', color: MUTED, margin: 'md' }] : []),
+          ...(footnote
+            ? [
+                { type: 'separator', margin: 'lg', color: LINE_COLOR },
+                { type: 'text', text: footnote, size: 'xxs', color: MUTED, margin: 'md', wrap: true },
+              ]
+            : []),
         ],
       },
     },
+  };
+}
+
+/** The morning push. Its altText is the line a phone shows on the lock screen. Only sent when the list is not empty. */
+export function overdueAlert(loans) {
+  return {
+    ...overdueList(loans, 'การแจ้งเตือนจะหยุดเองเมื่อครบ 3 วันหลังกดรับ'),
+    altText: `แจ้งเตือนเช้านี้: ของเกินกำหนดคืน ${loans.length} รายการ`,
+    quickReply: { items: [messageButton(UNSUBSCRIBE, UNSUBSCRIBE)] },
   };
 }
 

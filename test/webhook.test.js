@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { afterEach, beforeEach, test } from 'node:test';
+import { afterEach, beforeEach, mock, test } from 'node:test';
 import { forgetToken } from '../src/api.js';
-import worker from '../src/index.js';
+import worker, { notifyOverdue } from '../src/index.js';
 
 const env = {
   LINE_CHANNEL_SECRET: 's3cret',
@@ -199,4 +199,66 @@ test('blocking the bot ends the subscription, and nothing is sent back', async (
 
   assert.deepEqual([...kv.ttl.keys()], ['U2']);
   assert.equal(calls.length, 0);
+});
+
+/** Runs the morning job with no wait between wake-up tries. */
+async function morning(kv, respond) {
+  const calls = stubFetch(respond);
+  await notifyOverdue({ ...env, SUBSCRIBERS: kv }, { retryDelayMs: 0 });
+  const multicasts = calls.filter((c) => c.url.endsWith('/v2/bot/message/multicast')).map((c) => JSON.parse(c.body));
+  return { calls, multicasts, overdueCalls: calls.filter((c) => c.url.endsWith('/api/loans/overdue')) };
+}
+
+const lateLoans = [
+  { tag: 'AV-67-0034', name: 'โปรเจกเตอร์ Epson', borrower: 'พนักงานทดลอง', due_on: '1 ต.ค. 2569', days_overdue: 10 },
+  { tag: 'COM-65-0010', name: 'โน้ตบุ๊ก', borrower: 'สมชาย', due_on: '5 ต.ค. 2569', days_overdue: 6 },
+];
+const withOverdue = (loans) => (call) => (call.url.endsWith('/api/loans/overdue') ? json({ data: loans }) : assets(call));
+
+test('the morning job does nothing, not even wake the asset system, when nobody subscribed', async () => {
+  const { calls } = await morning(fakeKv(), withOverdue(lateLoans));
+
+  assert.equal(calls.length, 0);
+});
+
+test('the morning job sends one multicast with one message to exactly the subscribers', async () => {
+  const { calls, multicasts } = await morning(fakeKv(['U1', 'U2']), withOverdue(lateLoans));
+
+  assert.equal(multicasts.length, 1);
+  assert.deepEqual(multicasts[0].to.toSorted(), ['U1', 'U2']);
+  assert.equal(multicasts[0].messages.length, 1);
+  assert.match(multicasts[0].messages[0].altText, /2 รายการ/);
+  assert.equal(calls.filter((c) => c.url.startsWith(env.LINE_API)).length, 1);
+});
+
+test('no overdue loans, no alert', async () => {
+  const { calls, overdueCalls } = await morning(fakeKv(['U1']), withOverdue([]));
+
+  assert.equal(overdueCalls.length, 1);
+  assert.equal(calls.filter((c) => c.url.startsWith(env.LINE_API)).length, 0);
+});
+
+test('the morning job keeps asking a sleeping server until it wakes', async () => {
+  let tries = 0;
+  const { multicasts, overdueCalls } = await morning(fakeKv(['U1']), (call) =>
+    call.url.endsWith('/api/loans/overdue') && ++tries <= 2 ? asleep() : withOverdue(lateLoans)(call),
+  );
+
+  assert.equal(overdueCalls.length, 3);
+  assert.equal(multicasts.length, 1);
+});
+
+test('a server that never wakes gets 8 tries, then the morning job gives up without sending', async () => {
+  const logged = mock.method(console, 'error', () => {});
+  try {
+    const { multicasts, overdueCalls } = await morning(fakeKv(['U1']), (call) =>
+      call.url.endsWith('/api/loans/overdue') ? asleep() : assets(call),
+    );
+
+    assert.equal(overdueCalls.length, 8);
+    assert.equal(multicasts.length, 0);
+    assert.equal(logged.mock.callCount(), 1);
+  } finally {
+    logged.mock.restore();
+  }
 });

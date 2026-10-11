@@ -3,7 +3,7 @@
 //
 // usage:  node tool/validate.mjs
 import { readFileSync } from 'node:fs';
-import { assetCard, help, notFound, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from '../src/bot.js';
+import { assetCard, help, notFound, overdueAlert, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from '../src/bot.js';
 
 const vars = Object.fromEntries(
   readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8')
@@ -44,8 +44,8 @@ const samples = {
 };
 
 let failed = false;
-for (const [name, message] of Object.entries(samples)) {
-  const res = await fetch('https://api.line.me/v2/bot/message/validate/reply', {
+async function validate(kind, name, message) {
+  const res = await fetch(`https://api.line.me/v2/bot/message/validate/${kind}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${vars.LINE_CHANNEL_ACCESS_TOKEN}` },
     body: JSON.stringify({ messages: [message] }),
@@ -53,4 +53,7 @@ for (const [name, message] of Object.entries(samples)) {
   failed ||= !res.ok;
   console.log(`${res.ok ? 'ok  ' : 'FAIL'}  ${name}${res.ok ? '' : `: ${res.status} ${await res.text()}`}`);
 }
+
+for (const [name, message] of Object.entries(samples)) await validate('reply', name, message);
+await validate('multicast', 'morning alert (12, capped)', overdueAlert(loans));
 process.exit(failed ? 1 : 0);
