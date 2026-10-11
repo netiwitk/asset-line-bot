@@ -17,7 +17,7 @@ const MAX_SUBSCRIBERS = 8;
 /** A subscription ends by itself, so a visitor who tried the demo once stops using the quota. */
 const SUBSCRIPTION_SECONDS = 3 * 24 * 60 * 60;
 
-/** The free demo server took 45 s to wake once. Eight tries of up to 20 s, 10 s apart, keep asking for 3-4 minutes. */
+/** The free demo server took 45 s to wake once, and may answer 503 quickly meanwhile. Eight tries of up to 20 s, 20 s apart, keep asking for 2.5-5 minutes. */
 const WAKE_ATTEMPTS = 8;
 const WAKE_ATTEMPT_MS = 20_000;
 
@@ -43,7 +43,7 @@ export default {
 };
 
 /** One multicast with one message, so each subscriber costs one message of the monthly quota. */
-export async function notifyOverdue(env, { retryDelayMs = 10_000 } = {}) {
+export async function notifyOverdue(env, { retryDelayMs = 20_000 } = {}) {
   const { keys } = await env.SUBSCRIBERS.list();
   if (keys.length === 0) return;
   const loans = await overdueOnceAwake(env, retryDelayMs);
