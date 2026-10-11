@@ -35,6 +35,14 @@ test('reads keywords, tags and scanner links; anything else gets help', () => {
   assert.deepEqual(intentOf(''), { kind: 'help' });
 });
 
+test('the alert commands win over the overdue words they may contain', () => {
+  assert.deepEqual(intentOf(' รับแจ้งเตือน '), { kind: 'subscribe' });
+  assert.deepEqual(intentOf('รับแจ้งเตือนของเกินกำหนด'), { kind: 'subscribe' });
+  assert.deepEqual(intentOf('เลิกแจ้งเตือน'), { kind: 'unsubscribe' });
+  assert.deepEqual(intentOf('เลิกแจ้งเตือนของเกินกำหนด'), { kind: 'unsubscribe' });
+  assert.deepEqual(intentOf('ไม่รับแจ้งเตือนของเกินกำหนด'), { kind: 'overdue' });
+});
+
 test('the asset card shows its facts, the late loan, and opens the scanner app on that tag', () => {
   const card = assetCard(asset, 'https://scan.example/');
   const shown = texts(card);
@@ -79,8 +87,9 @@ test('the overdue list stops at the limit and says how many more', () => {
   assert.equal(overdueList([]).text, 'ตอนนี้ไม่มีของเกินกำหนดคืน');
 });
 
-test('quick reply buttons fit LINE limits and "ลองใหม่" resends the same text', () => {
+test('quick reply buttons fit LINE limits, help offers the alert, and "ลองใหม่" resends the same text', () => {
   for (const item of help().quickReply.items) assert.ok(item.action.label.length <= 20);
+  assert.ok(help().quickReply.items.some((item) => item.action.text === 'รับแจ้งเตือน'));
   assert.equal(unavailable('AV-67-0037').quickReply.items[0].action.text, 'AV-67-0037');
 });
 

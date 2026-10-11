@@ -32,24 +32,50 @@ afterEach(() => {
   globalThis.fetch = realFetch;
 });
 
-function textMessage(text, n = 1) {
-  return { type: 'message', replyToken: `reply-${n}`, source: { type: 'user', userId: 'U1' }, message: { type: 'text', text } };
+function textMessage(text, n = 1, userId = 'U1') {
+  return { type: 'message', replyToken: `reply-${n}`, source: { type: 'user', userId }, message: { type: 'text', text } };
 }
 
-/** Sends a signed webhook, answers outgoing requests with `respond`, and waits for the background work. */
-async function deliver(events, respond, { secret = env.LINE_CHANNEL_SECRET } = {}) {
-  const body = JSON.stringify({ destination: 'Ubot', events });
-  const signature = createHmac('sha256', secret).update(body).digest('base64');
+/** Workers KV in memory, keeping the expirationTtl each key was last written with. */
+function fakeKv(names = []) {
+  const ttl = new Map(names.map((name) => [name, undefined]));
+  return {
+    ttl,
+    async get(key) {
+      return ttl.has(key) ? '' : null;
+    },
+    async put(key, value, options) {
+      ttl.set(key, options?.expirationTtl);
+    },
+    async delete(key) {
+      ttl.delete(key);
+    },
+    async list() {
+      return { keys: [...ttl.keys()].map((name) => ({ name })), list_complete: true };
+    },
+  };
+}
+
+/** Answers LINE with 200 and everything else with `respond`, recording each request. */
+function stubFetch(respond) {
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const call = { url: String(url), method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body };
     calls.push(call);
     return call.url.startsWith(env.LINE_API) ? json({}) : respond(call);
   };
+  return calls;
+}
+
+/** Sends a signed webhook, answers outgoing requests with `respond`, and waits for the background work. */
+async function deliver(events, respond, { secret = env.LINE_CHANNEL_SECRET, kv = fakeKv() } = {}) {
+  const body = JSON.stringify({ destination: 'Ubot', events });
+  const signature = createHmac('sha256', secret).update(body).digest('base64');
+  const calls = stubFetch(respond);
   const pending = [];
   const res = await worker.fetch(
     new Request('https://bot.test/webhook', { method: 'POST', body, headers: { 'x-line-signature': signature } }),
-    env,
+    { ...env, SUBSCRIBERS: kv },
     { waitUntil: (promise) => pending.push(promise) },
   );
   await Promise.all(pending);
@@ -130,4 +156,47 @@ test('adding the bot as a friend gets the help text without calling the asset sy
 
   assert.match(replies[0].messages[0].text, /บอทระบบทรัพย์สิน/);
   assert.equal(api.length, 0);
+});
+
+const THREE_DAYS = 3 * 24 * 60 * 60;
+const asleep = () => new Response('<html>waking</html>', { status: 503 });
+
+test('"รับแจ้งเตือน" signs the user up for 3 days, even while the asset system sleeps', async () => {
+  const kv = fakeKv();
+  const { replies, api } = await deliver([textMessage('รับแจ้งเตือน')], asleep, { kv });
+
+  assert.equal(kv.ttl.get('U1'), THREE_DAYS);
+  assert.equal(api.length, 0);
+  assert.match(replies[0].messages[0].text, /ทุกเช้า 08:00/);
+  assert.equal(replies[0].messages[0].quickReply.items[0].action.text, 'เลิกแจ้งเตือน');
+});
+
+test('with all 8 seats taken a newcomer is turned away, but a subscriber can still renew', async () => {
+  const kv = fakeKv(['U1', 'U2', 'U3', 'U4', 'U5', 'U6', 'U7', 'U8']);
+
+  const newcomer = await deliver([textMessage('รับแจ้งเตือน', 1, 'U9')], assets, { kv });
+  assert.equal(await kv.get('U9'), null);
+  assert.equal(kv.ttl.size, 8);
+  assert.match(newcomer.replies[0].messages[0].text, /เต็มแล้ว/);
+
+  const renewal = await deliver([textMessage('รับแจ้งเตือน', 2, 'U1')], assets, { kv });
+  assert.equal(kv.ttl.get('U1'), THREE_DAYS);
+  assert.match(renewal.replies[0].messages[0].text, /ทุกเช้า 08:00/);
+});
+
+test('"เลิกแจ้งเตือน" removes the user and offers to sign up again', async () => {
+  const kv = fakeKv(['U1', 'U2']);
+  const { replies, api } = await deliver([textMessage('เลิกแจ้งเตือน')], asleep, { kv });
+
+  assert.deepEqual([...kv.ttl.keys()], ['U2']);
+  assert.equal(api.length, 0);
+  assert.equal(replies[0].messages[0].quickReply.items[0].action.text, 'รับแจ้งเตือน');
+});
+
+test('blocking the bot ends the subscription, and nothing is sent back', async () => {
+  const kv = fakeKv(['U1', 'U2']);
+  const { calls } = await deliver([{ type: 'unfollow', source: { type: 'user', userId: 'U1' } }], assets, { kv });
+
+  assert.deepEqual([...kv.ttl.keys()], ['U2']);
+  assert.equal(calls.length, 0);
 });

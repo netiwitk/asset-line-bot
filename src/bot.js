@@ -13,15 +13,21 @@ const SAMPLE_TAGS = ['AV-67-0037', 'AV-67-0034', 'COM-65-0010'];
 
 const OVERDUE_WORDS = ['เกินกำหนด', 'ค้างคืน', 'overdue'];
 
+const SUBSCRIBE = 'รับแจ้งเตือน';
+const UNSUBSCRIBE = 'เลิกแจ้งเตือน';
+
 /** How many overdue loans one card lists before "and N more". */
 export const OVERDUE_LIMIT = 10;
 
 /**
  * A word for the overdue list, a tag (or a scanner app link to one), or anything else, which gets the help text.
  * A tag is one word with a digit in it; the server decides whether it exists.
+ * The alert commands come first: "รับแจ้งเตือนของเกินกำหนด" asks for the alert, not the list.
  */
 export function intentOf(text) {
   const trimmed = (text ?? '').trim();
+  if (trimmed.startsWith(SUBSCRIBE)) return { kind: 'subscribe' };
+  if (trimmed.startsWith(UNSUBSCRIBE)) return { kind: 'unsubscribe' };
   if (OVERDUE_WORDS.some((word) => trimmed.toLowerCase().includes(word))) return { kind: 'overdue' };
   const link = trimmed.match(/#\/a\/([^/?#\s]+)$/);
   const word = link ? decodeURIComponent(link[1]) : trimmed;
@@ -37,6 +43,7 @@ export function help() {
       '',
       '• พิมพ์รหัสทรัพย์สิน เช่น AV-67-0037 เพื่อดูสถานะและผู้ยืม',
       '• พิมพ์ "เกินกำหนด" เพื่อดูของที่ยังไม่คืน',
+      '• พิมพ์ "รับแจ้งเตือน" เพื่อรับรายการของเกินกำหนดทุกเช้า 08:00',
       '',
       'บอท demo ใช้สิทธิ์เจ้าหน้าที่พัสดุ จึงเห็นทุกหน่วยงาน',
     ].join('\n'),
@@ -45,6 +52,29 @@ export function help() {
 
 export function notFound(tag) {
   return withQuickReplies({ type: 'text', text: `ไม่พบรหัส ${tag}\nลองตรวจตัวอักษรอีกครั้ง หรือกดรหัสตัวอย่างด้านล่าง` });
+}
+
+export function subscribed() {
+  return {
+    type: 'text',
+    text: 'รับแจ้งเตือนแล้ว\nทุกเช้า 08:00 บอทจะส่งรายการของเกินกำหนดคืนให้ เป็นเวลา 3 วัน แล้วหยุดเอง\nพิมพ์ "เลิกแจ้งเตือน" ถ้าอยากหยุดก่อน',
+    quickReply: { items: [messageButton(UNSUBSCRIBE, UNSUBSCRIBE)] },
+  };
+}
+
+export function subscriptionsFull() {
+  return withQuickReplies({
+    type: 'text',
+    text: 'ตอนนี้ที่รับแจ้งเตือนของ demo เต็มแล้ว\nลองใหม่อีกครั้งในอีกไม่กี่วัน',
+  });
+}
+
+export function unsubscribed() {
+  return {
+    type: 'text',
+    text: 'เลิกแจ้งเตือนแล้ว บอทจะไม่ส่งรายการตอนเช้าอีก',
+    quickReply: { items: [messageButton(SUBSCRIBE, SUBSCRIBE)] },
+  };
 }
 
 /** The free demo server sleeps when nobody uses it; the first message after that only wakes it. */
@@ -201,7 +231,7 @@ function dot(status) {
 }
 
 function withQuickReplies(message) {
-  return { ...message, quickReply: { items: [...SAMPLE_TAGS, 'เกินกำหนด'].map((text) => messageButton(text, text)) } };
+  return { ...message, quickReply: { items: [...SAMPLE_TAGS, 'เกินกำหนด', SUBSCRIBE].map((text) => messageButton(text, text)) } };
 }
 
 function messageButton(label, text) {

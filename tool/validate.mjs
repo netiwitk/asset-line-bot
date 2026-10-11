@@ -3,7 +3,7 @@
 //
 // usage:  node tool/validate.mjs
 import { readFileSync } from 'node:fs';
-import { assetCard, help, notFound, overdueList, unavailable } from '../src/bot.js';
+import { assetCard, help, notFound, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from '../src/bot.js';
 
 const vars = Object.fromEntries(
   readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8')
@@ -38,6 +38,9 @@ const samples = {
   'asset card (no loan, no extras)': assetCard({ ...fullAsset, loan: null, location: null, custodian: null, book_value: null }, 'https://netiwitk.github.io/asset-scanner/'),
   'overdue list (12, capped)': overdueList(loans),
   'overdue list (empty)': overdueList([]),
+  subscribed: subscribed(),
+  'subscriptions full': subscriptionsFull(),
+  unsubscribed: unsubscribed(),
 };
 
 let failed = false;

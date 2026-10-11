@@ -1,7 +1,7 @@
 // LINE webhook for the asset system: answer at once, then reply to each event in the background.
 
 import { NotFound, Unavailable, getAsset, getOverdue } from './api.js';
-import { assetCard, help, intentOf, notFound, overdueList, unavailable } from './bot.js';
+import { assetCard, help, intentOf, notFound, overdueList, subscribed, subscriptionsFull, unavailable, unsubscribed } from './bot.js';
 import { reply, showLoading, verifySignature } from './line.js';
 
 /**
@@ -9,6 +9,12 @@ import { reply, showLoading, verifySignature } from './line.js';
  * the reply token's life (about 25-30 s) and Cloudflare's 30 s limit on work after the response.
  */
 const ANSWER_WITHIN_MS = 15_000;
+
+/** Each subscriber costs one message of LINE's free 300 a month every morning; 8 × 30 days = 240 leaves room. */
+const MAX_SUBSCRIBERS = 8;
+
+/** A subscription ends by itself, so a visitor who tried the demo once stops using the quota. */
+const SUBSCRIPTION_SECONDS = 3 * 24 * 60 * 60;
 
 export default {
   async fetch(request, env, ctx) {
@@ -29,21 +35,28 @@ export default {
 
 async function handle(event, env) {
   try {
+    if (event.type === 'unfollow') return await env.SUBSCRIBERS.delete(event.source.userId);
     if (!event.replyToken) return;
     if (event.type === 'follow') return await reply(env, event.replyToken, [help()]);
     if (event.type !== 'message') return;
 
     const text = event.message.type === 'text' ? event.message.text : '';
     if (event.source?.type === 'user') await showLoading(env, event.source.userId);
-    await reply(env, event.replyToken, [await answer(text, env)]);
+    await reply(env, event.replyToken, [await answer(text, event.source?.userId, env)]);
   } catch (error) {
     console.error('event failed', error);
   }
 }
 
-async function answer(text, env) {
+async function answer(text, userId, env) {
   const intent = intentOf(text);
-  if (intent.kind === 'help') return help();
+  if (intent.kind === 'subscribe' && userId) return (await subscribe(env, userId)) ? subscribed() : subscriptionsFull();
+  if (intent.kind === 'unsubscribe' && userId) {
+    await env.SUBSCRIBERS.delete(userId);
+    return unsubscribed();
+  }
+  // Help, or an alert command from a chat that names no user to alert.
+  if (intent.kind !== 'overdue' && intent.kind !== 'asset') return help();
 
   const signal = AbortSignal.timeout(ANSWER_WITHIN_MS);
   try {
@@ -54,4 +67,13 @@ async function answer(text, env) {
     if (error instanceof Unavailable) return unavailable(text);
     throw error;
   }
+}
+
+// ponytail: KV lists are eventually consistent (about a minute), so a burst of sign-ups can pass the cap by a few.
+// Count seats in a Durable Object if that ever matters.
+async function subscribe(env, userId) {
+  const { keys } = await env.SUBSCRIBERS.list();
+  if (keys.length >= MAX_SUBSCRIBERS && !keys.some((key) => key.name === userId)) return false;
+  await env.SUBSCRIBERS.put(userId, '', { expirationTtl: SUBSCRIPTION_SECONDS });
+  return true;
 }

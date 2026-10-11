@@ -100,9 +100,9 @@ await check('an unknown tag says it was not found', async () => {
   expect(messages?.[0]?.text?.includes('ไม่พบรหัส XX-00-0000'), JSON.stringify(messages));
 });
 
-await check('a greeting gets the help text with quick replies', async () => {
+await check('a greeting gets the help text with quick replies, the alert among them', async () => {
   const { messages } = await send(userText('สวัสดีครับ'));
-  expect(messages?.[0]?.quickReply?.items.length === 4, JSON.stringify(messages)?.slice(0, 200));
+  expect(messages?.[0]?.quickReply?.items.some((item) => item.action.text === 'รับแจ้งเตือน'), JSON.stringify(messages)?.slice(0, 200));
 });
 
 results.forEach((r) => console.log(r));

@@ -3,6 +3,8 @@
   "main": "src/index.js",
   "compatibility_date": "2026-10-01",
   "observability": { "enabled": true },
+  // Who asked for the morning alert: one key per LINE userId, each expiring 3 days after it was written.
+  "kv_namespaces": [{ "binding": "SUBSCRIBERS" }],
   "vars": {
     "API_URL": "https://asset-laravel.onrender.com",
     "APP_URL": "https://netiwitk.github.io/asset-scanner/",
